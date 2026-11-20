@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1d4d2b">
+<title>スコアブック</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+ *{box-sizing:border-box}
+ body{font-family:-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;margin:0;
+   background:#f2f5f0;color:#222}
+ header{background:#1d4d2b;color:#fff;padding:14px 16px;font-size:17px;font-weight:700;
+   display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:5}
+ header .ver{margin-left:auto;font-size:11px;font-weight:400;opacity:.75}
+ main{max-width:760px;margin:0 auto;padding:14px}
+ .card{display:block;width:100%;text-align:left;background:#fff;border:none;border-radius:12px;
+   box-shadow:0 1px 4px rgba(0,0,0,.15);padding:16px;margin:0 0 12px;cursor:pointer}
+ .card .date{font-size:13px;color:#1d4d2b;font-weight:700}
+ .card .course{font-size:17px;font-weight:700;margin:3px 0}
+ .card .meta{font-size:12px;color:#777}
+ .msg{color:#666;font-size:14px;padding:18px 4px}
+ .err{color:#b00020}
+ #viewer{display:none;position:fixed;inset:0;background:#fff;z-index:10;flex-direction:column}
+ #viewer.open{display:flex}
+ #vbar{background:#1d4d2b;color:#fff;display:flex;align-items:center;gap:10px;
+   padding:10px 12px;padding-top:calc(10px + env(safe-area-inset-top))}
+ #vbar button{background:#fff;color:#1d4d2b;border:none;border-radius:8px;font-size:14px;
+   padding:7px 12px;cursor:pointer;font-weight:700}
+ #vtitle{font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+ #vframe{flex:1;border:none;width:100%}
+ #vload{position:absolute;inset:0;top:52px;display:none;align-items:center;justify-content:center;
+   color:#666;font-size:14px;background:#fff}
+</style>
+</head>
+<body>
+<header>⛳ スコアブック <span class="ver" id="ver"></span></header>
+<main id="listView"><div class="msg">読み込み中…</div></main>
+
+<div id="viewer">
+  <div id="vbar">
+    <button id="back">← 一覧</button>
+    <div id="vtitle"></div>
+  </div>
+  <div id="vload">読み込み中…</div>
+  <iframe id="vframe" sandbox="allow-scripts"></iframe>
+</div>
+
+<script src="js/config.js"></script>
+<script>
+const APP_VERSION = '1.0.0';
+document.getElementById('ver').textContent = 'v' + APP_VERSION;
+const listView = document.getElementById('listView');
+const viewer = document.getElementById('viewer');
+const vframe = document.getElementById('vframe');
+const vtitle = document.getElementById('vtitle');
+const vload = document.getElementById('vload');
+
+function parseName(name) {
+  // ScoreBook_2026-11-20_ゴールデンレイクス.html
+  const m = name.replace(/\.html$/i, '').match(/^ScoreBook_(\d{4}-\d{2}-\d{2})_(.+)$/);
+  return m ? { date: m[1], course: m[2] } : { date: '', course: name };
+}
+
+async function loadList() {
+  try {
+    const res = await fetch(GAS_URL + '?action=list');
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || 'list failed');
+    if (!data.files.length) {
+      listView.innerHTML = '<div class="msg">まだスコアブックがありません。</div>';
+      return;
+    }
+    listView.innerHTML = '';
+    for (const f of data.files) {
+      const p = parseName(f.name);
+      const b = document.createElement('button');
+      b.className = 'card';
+      b.innerHTML = '<div class="date"></div><div class="course"></div><div class="meta"></div>';
+      b.querySelector('.date').textContent = p.date;
+      b.querySelector('.course').textContent = p.course;
+      b.querySelector('.meta').textContent =
+        (f.size / 1048576).toFixed(1) + ' MB ・ 更新 ' + new Date(f.modified).toLocaleDateString('ja-JP');
+      b.addEventListener('click', () => openBook(f.id, p.date + ' ' + p.course));
+      listView.appendChild(b);
+    }
+  } catch (e) {
+    listView.innerHTML = '<div class="msg err">一覧を取得できませんでした（' + e.message + '）</div>';
+  }
+}
+
+async function openBook(id, title) {
+  vtitle.textContent = title;
+  viewer.classList.add('open');
+  vload.style.display = 'flex';
+  vframe.removeAttribute('srcdoc');
+  try {
+    const res = await fetch(GAS_URL + '?action=get&id=' + encodeURIComponent(id));
+    const html = await res.text();
+    vframe.srcdoc = html;
+  } catch (e) {
+    vframe.srcdoc = '<p style="font-family:sans-serif;padding:20px">読み込めませんでした（' + e.message + '）</p>';
+  } finally {
+    vload.style.display = 'none';
+  }
+}
+
+document.getElementById('back').addEventListener('click', () => {
+  viewer.classList.remove('open');
+  vframe.removeAttribute('srcdoc');
+});
+
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+loadList();
+</script>
+</body>
+</html>
